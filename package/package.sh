@@ -22,35 +22,24 @@ dest="$packDir/$app-$vers"
 #1. Generate the source tarball at that specific version
 theTarball=$dest/tarball.tar
 git -c core.abbrev=no -C "$pwd" archive --format tar "$vers" > $theTarball
-checksum=$(sha256sum $theTarball | awk '{print $1}')
+checksum=$(sha256sum $theTarball | cut -d ' ' -f 1)
 
 #2. We use a PKGBUILD with the local source to build the package, and generate a PKGBUILD
 #with the original source to have something to upload to AUR etc.
+sed -z -e "s|sha256sums=\([^)]*\)|sha256sums=('$checksum'|" \
+	-e "s|source=\([^)]*\)|source=(tarball.tar|" \
+	-e "s|pkgver=_|pkgver=$vers|" \
+	package/PKGBUILD > $dest/PKGBUILD
 
-#AWK programs to replace checksum etc in the PKGBUILD
-read -r -d '' localSourceSubst <<EOF
-{ 
-gsub(/source=\([^)]+\)/, "source=(tarball.tar)"); 
-gsub(/pkgver=_/, "pkgver=$vers"); 
-gsub(/sha256sums=\([^)]+\)/, "sha256sums=('$checksum')"); 
-}1
-EOF
+cp package/changelog.txt $dest/changelog.txt
 
-read -r -d '' globalSourceSubst <<EOF
-{ 
-gsub(/pkgver=_/, "pkgver=$vers"); 
-gsub(/sha256sums=\([^)]+\)/, "sha256sums=('$checksum')"); 
-}1
-EOF
-
-awk -v RS='^$' -v ORS='' "$localSourceSubst" package/PKGBUILD > $dest/PKGBUILD
-/usr/bin/cp package/changelog.txt $dest/changelog.txt
-
-#3. Actually build the package 
+#3. Actually build the package
 (cd $dest \
-   && /usr/bin/makepkg \
-   && /usr/bin/rm tarball.tar \
-   && /usr/bin/awk -v RS='^$' -v ORS='' "$globalSourceSubst" "$original/package/PKGBUILD" > \
-      $dest/PKGBUILD \
-   && echo "Arch package for version $vers built in $dest" \
-   || echo "ERROR")
+	&& makepkg \
+	&& /usr/bin/rm tarball.tar \
+	&& sed -z -e "s|pkgver=_|pkgver=$vers|" \
+		-e "s|sha256sums=\([^)]*\)|sha256sums=('$checksum'|" \
+		"$original/package/PKGBUILD" > "$dest/PKGBUILD" \
+	&& echo "Package built: $app version $vers. Location: $dest" \
+	|| echo "ERROR when building package")
+
