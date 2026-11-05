@@ -487,10 +487,10 @@ typedef enum { //:WhatToDo
 } WhatToDo;
 
 typedef struct { //:TaskDescription
-	Text inputFilename;
 	WhatToDo whatToDo;
 	Text configDir;
 	Text projName;
+	Text templateName;
 	Text errMsg;
 	LVar* vars;
 } TaskDescription;
@@ -575,7 +575,7 @@ openTemplate(Text fName, Arena* a) {
 	FILE *template = fopen(fName.c, "r");
 	if (!template) {
 		print("Template file not found!");
-		print("%s", fName.c);
+		print("||%s||", fName.c);
 		return empty;
 	}
 
@@ -718,16 +718,23 @@ parseTemplate(Text template, Text projName, LVar* vars, Arena* a) {
 }
 
 //Return true iff OK
-Bool //:tryReadTemplate
-tryReadTemplate(TaskDescription task) {
+Bool
+tryReadTemplate(TaskDescription task) {//:tryReadTemplate
 	Arena* a = createArena();
-	Int len = task.configDir.len + task.inputFilename.len + 6;
+
+	Int len = task.configDir.len + task.templateName.len + 6;
 	char* fName = allocateOnArena(len, a);
-	memcpy(fName, task.configDir.c, task.configDir.len);
-	fName[task.configDir.len] = '/';
-	memcpy(fName + task.configDir.len + 1, task.inputFilename.c, task.inputFilename.len);
-	memcpy(fName + task.configDir.len + task.inputFilename.len + 1, ".proj", 5);
-	fName[len] = '\0';
+	char* w = fName;
+	memcpy(w, task.configDir.c, task.configDir.len);
+	w += task.configDir.len;
+	w[0] = '/';
+	w++;
+	memcpy(w, task.templateName.c, task.templateName.len);
+	w += task.templateName.len;
+
+	memcpy(w, ".proj", 5);
+	w += 5;
+	w[0] = '\0';
 
 	Text fileContents = openTemplate((Text){.c = fName, .len = len}, a);
 	if (fileContents.len == 0) {
@@ -788,11 +795,13 @@ commandLineVar(Int argInd, Int argc, char** argv, Arena* a) {//:commandLineVar
 // A `--name=foo` expression
 	char const* arg = argv[argInd];
 	Int j = 2;
-	for (; isAlphanumeric(arg[j]); j++) {}
+	for (; isAlphanumeric(arg[j]); j++)
+		{}
 	if (arg[j] == '=') {
 		j++;
 		Int valueStart = j;
-		for (; arg[j] != '\0'; j++) {}
+		for (; arg[j] != '\0'; j++)
+			{}
 		Int len = j - valueStart;
 		if (len == 0) {
 			errMsg = text("Empty value of command argument");
@@ -808,17 +817,17 @@ commandLineVar(Int argInd, Int argc, char** argv, Arena* a) {//:commandLineVar
 	}
 }
 
-private TaskDescription //:getCommandParams
-getCommandParams(int argc, char** argv, Arena* a) {
+private TaskDescription
+getCommandParams(int argc, char** argv, Arena* a) {//:getCommandParams
 	if (argc == 1) { // no arguments to the program
 		return (TaskDescription){
-				.inputFilename = empty, .vars = null,
+				.templateName = empty, .vars = null,
 				.errMsg = empty, .whatToDo = whatToDoPrintTemplateDirs
 		};
 	}
-	Text inputFilename = empty;
+	Text template = empty;
 	TaskDescription task = (TaskDescription){
-		.vars = createLVar(2, a), .inputFilename = inputFilename, .whatToDo = whatToDoInitProject
+		.vars = createLVar(2, a), .templateName = empty, .whatToDo = whatToDoInitProject
 	};
 	for (Int j = 1; j < argc; j++) {
 		char* argCString = argv[j];
@@ -837,28 +846,25 @@ getCommandParams(int argc, char** argv, Arena* a) {
 				}
 			} ei (arg.c[1] == '-') {
 				add(commandLineVar(j, argc, argv, a), task.vars);
-				printf("found comm line var key %s value %s\n",
-						task.vars->c[task.vars->len - 1].name.c,
-						task.vars->c[task.vars->len - 1].value.c
-						);
 				continue;
 			}
 			errMsg = text("Unknown option");
 			goto finish;
 		} else {
-			if (inputFilename.len == 0) {
-				inputFilename = arg;
+			if (template.len == 0) {
+				template = arg;
 			} else {
 				errMsg = text("Only 1 input file is allowed");
 				goto finish;
 			}
 		}
 	}
-	if (containsChar(inputFilename, '/')) {
+	if (containsChar(template, '/')) {
 		task.whatToDo = whatToDoInitProject;
+		task.templateName = template;
 		task.projName = getProjectName(task.vars).value;
-	} ei (inputFilename.len > 0) {
-		task.inputFilename = inputFilename;
+	} ei (template.len > 0) {
+		task.templateName = template; //template dir name, not a specific template
 		task.whatToDo = whatToDoPrintTemplates;
 	} else {
 		task.whatToDo = whatToDoPrintTemplateDirs;
@@ -888,10 +894,10 @@ getConfigDir(Arena* a) {
 	return (Text){.c = configDir, .len = configDirLen};
 }
 
-void run(TaskDescription task) {
+void run(TaskDescription task) { //:run
 	switch (task.whatToDo) {
 	case whatToDoPrintTemplates: {
-		printTemplates(task.configDir, task.inputFilename.c);
+		printTemplates(task.configDir, task.templateName.c);
 		break;
 	}
 	case whatToDoPrintTemplateDirs: {
